@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Wallet, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import React from 'react';
+import { ArrowUpCircle } from 'lucide-react';
 
 interface WalletDisplayProps {
   balance: number;
@@ -10,7 +10,7 @@ const WalletDisplay: React.FC<WalletDisplayProps> = ({ balance, onWithdrawReques
   return (
     <div className="bg-slate-900 border border-white/5 pl-4 pr-1.5 py-1.5 rounded-2xl flex items-center gap-4 shadow-xl">
       <div className="flex flex-col items-end">
-        <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none mb-0.5">የአሁኑ ሂሳብ</span>
+        <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none mb-0.5">የአሁኑ ሒሳብ</span>
         <span className="text-lg font-black text-white tabular-nums leading-none">
           {balance.toLocaleString()} <span className="text-xs text-blue-500">ETB</span>
         </span>

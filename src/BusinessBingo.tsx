@@ -8,6 +8,7 @@ interface BusinessBingoProps {
   stake: number;
   walletBalance: number;
   onBack: () => void;
+  onWin: (prize: number) => void;
   playerName: string;
   activePlayersCount: number;
   isPlayerActive: boolean;
@@ -54,7 +55,7 @@ const WIN_PATTERNS = [
   [0, 6, 12, 18, 24], [4, 8, 12, 16, 20]
 ];
 
-const BusinessBingo: React.FC<BusinessBingoProps> = ({ stake, walletBalance, onBack, playerName, activePlayersCount, isPlayerActive }) => {
+const BusinessBingo: React.FC<BusinessBingoProps> = ({ stake, walletBalance, onBack, onWin, playerName, activePlayersCount, isPlayerActive }) => {
   const [cards] = useState(() => [generateCard(1), generateCard(2)]);
   const [calledNumbers, setCalledNumbers] = useState<number[]>([]);
   const [markedIndices, setMarkedIndices] = useState<{ [cardId: number]: Set<number> }>({ 1: new Set([12]), 2: new Set([12]) });
@@ -62,25 +63,21 @@ const BusinessBingo: React.FC<BusinessBingoProps> = ({ stake, walletBalance, onB
   const [isGameOver, setIsGameOver] = useState(false);
   const [winner, setWinner] = useState<{ name: string; cardId: number; prize: number } | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
-  const [countdown, setCountdown] = useState(60);
+  const [countdown, setCountdown] = useState(5); // Shorter for better UX
 
   const prizePool = (activePlayersCount * stake) * 0.7;
 
-  // Wait for 5 players and active status
-  const canStart = activePlayersCount >= 5 && isPlayerActive;
-
   useEffect(() => {
-    if (canStart && countdown > 0 && !gameStarted) {
+    if (countdown > 0 && !gameStarted) {
       const timer = setTimeout(() => {
-        if (countdown === 10) sfx.ball.play(); // Warning ding
         setCountdown(countdown - 1);
       }, 1000);
       return () => clearTimeout(timer);
-    } else if (canStart && countdown === 0 && !gameStarted) {
+    } else if (countdown === 0 && !gameStarted) {
       setGameStarted(true);
       sfx.start.play();
     }
-  }, [canStart, countdown, gameStarted]);
+  }, [countdown, gameStarted]);
 
   // Ball calling
   useEffect(() => {
@@ -96,7 +93,7 @@ const BusinessBingo: React.FC<BusinessBingoProps> = ({ stake, walletBalance, onB
           sfx.ball.play();
           return [...prev, next];
         });
-      }, 4000);
+      }, 3500);
       return () => clearInterval(interval);
     }
   }, [gameStarted, isGameOver]);
@@ -125,6 +122,7 @@ const BusinessBingo: React.FC<BusinessBingoProps> = ({ stake, walletBalance, onB
 
     setMarkedIndices(prev => {
       const next = { ...prev };
+      if (!next[cardId]) next[cardId] = new Set([12]);
       const set = new Set(next[cardId]);
       if (set.has(index)) {
         if (index !== 12) set.delete(index);
@@ -136,51 +134,16 @@ const BusinessBingo: React.FC<BusinessBingoProps> = ({ stake, walletBalance, onB
       
       // Check Win
       if (WIN_PATTERNS.some(p => p.every(idx => next[cardId].has(idx)))) {
-        setWinner({ name: playerName, cardId, prize: prizePool });
+        const winPrize = Math.floor(prizePool);
+        setWinner({ name: playerName, cardId, prize: winPrize });
         setIsGameOver(true);
         sfx.win.play();
+        onWin(winPrize);
       }
       
       return next;
     });
   };
-
-  if (!isPlayerActive) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 animate-in fade-in duration-500 text-center">
-        <div className="w-24 h-24 bg-blue-600/10 rounded-full flex items-center justify-center animate-pulse">
-          <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
-        </div>
-        <div className="space-y-4">
-          <h2 className="text-3xl font-black">ክፍያዎ እየተረጋገጠ ነው...</h2>
-          <p className="text-slate-400 max-w-sm">እባክዎ ለአፍታ ይጠብቁ። አስተዳዳሪው ክፍያዎን ሲያረጋግጥ በራስ-ሰር ወደ ጨዋታው ይገባሉ።</p>
-        </div>
-        <button onClick={onBack} className="text-slate-500 font-bold hover:text-white flex items-center gap-2">
-          <ArrowLeft size={18} /> ወደ መጀመሪያው ገጽ ተመለስ
-        </button>
-      </div>
-    );
-  }
-
-  if (activePlayersCount < 5) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-8 animate-in fade-in duration-500 text-center">
-        <div className="w-24 h-24 bg-yellow-500/10 rounded-full flex items-center justify-center">
-          <AlertCircle className="w-12 h-12 text-yellow-500 animate-bounce" />
-        </div>
-        <div className="space-y-4">
-          <h2 className="text-3xl font-black">ተጫዋቾች እየጠበቁ ነው...</h2>
-          <p className="text-slate-400 max-w-md">5 ተጫዋቾች ሲሞሉ ጨዋታው ይጀምራል። በአሁኑ ሰዓት {activePlayersCount} ተጫዋቾች አሉ (Verified)።</p>
-        </div>
-        <div className="bg-slate-800/50 px-6 py-3 rounded-2xl border border-white/5 font-black text-blue-400">
-          Waiting: {5 - activePlayersCount} More
-        </div>
-        <button onClick={onBack} className="text-slate-500 font-bold hover:text-white flex items-center gap-2">
-          <ArrowLeft size={18} /> ተመለስ
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -195,9 +158,9 @@ const BusinessBingo: React.FC<BusinessBingoProps> = ({ stake, walletBalance, onB
         >
           <div className="flex items-center gap-3">
             <Timer className="w-6 h-6 animate-pulse" />
-            <span className="font-black">ጨዋታው ሊጀምር {countdown} ሰከንዶች ቀርተዋል...</span>
+            <span className="font-black text-sm md:text-base">ጨዋታው ሊጀምር {countdown} ሰከንዶች ቀርተዋል...</span>
           </div>
-          <div className="font-black bg-white/20 px-4 py-1 rounded-lg">
+          <div className="font-black bg-white/20 px-4 py-1 rounded-lg text-xs">
             {activePlayersCount} Players
           </div>
         </motion.div>
@@ -207,7 +170,7 @@ const BusinessBingo: React.FC<BusinessBingoProps> = ({ stake, walletBalance, onB
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-slate-800/50 border border-white/10 p-6 rounded-[2rem] flex flex-col justify-center">
           <p className="text-green-400 text-xs font-black uppercase tracking-widest mb-1">ጠቅላላ ሽልማት (Prize Pool)</p>
-          <p className="text-3xl font-black text-green-400">{prizePool.toLocaleString()} <span className="text-sm text-slate-500">ETB</span></p>
+          <p className="text-3xl font-black text-green-400">{Math.floor(prizePool).toLocaleString()} <span className="text-sm text-slate-500">ETB</span></p>
         </div>
 
         <div className="bg-slate-800/50 border border-white/10 p-6 rounded-[2rem] flex items-center justify-between">

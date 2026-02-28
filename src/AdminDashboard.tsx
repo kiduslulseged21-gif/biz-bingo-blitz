@@ -1,68 +1,155 @@
-import React, { useState } from 'react';
-import { Player, Withdrawal } from './App';
-import { CheckCircle, Clock, Users, DollarSign, PieChart, RotateCcw, Image as ImageIcon, Wallet as WalletIcon, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from './lib/supabase';
+import { CheckCircle, Clock, Users, DollarSign, PieChart, RotateCcw, Wallet as WalletIcon, Check, Plus, Search } from 'lucide-react';
+import { motion } from 'framer-motion';
 
-interface AdminDashboardProps {
-  players: Player[];
-  withdrawals: Withdrawal[];
-  onReset: () => void;
-  onVerify: (id: string) => void;
-  onMarkWithdrawalPaid: (id: string) => void;
+interface UserData {
+  id: string;
+  phone: string;
+  balance: number;
+  created_at: string;
 }
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
-  players, 
-  withdrawals,
-  onReset,
-  onVerify,
-  onMarkWithdrawalPaid
-}) => {
-  const [tab, setTab] = useState<'players' | 'withdrawals'>('players');
+interface WithdrawalData {
+  id: string;
+  user_id: string;
+  amount: number;
+  phone: string;
+  status: 'pending' | 'paid';
+  created_at: string;
+  users?: { phone: string };
+}
 
-  const activePlayers = players.filter(p => p.status === 'active');
-  const pendingPlayers = players.filter(p => p.status === 'waiting');
+const AdminDashboard: React.FC = () => {
+  const [tab, setTab] = useState<'players' | 'withdrawals'>('players');
+  const [users, setUsers] = useState<UserData[]>([]);
+  const [withdrawals, setWithdrawals] = useState<WithdrawalData[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [addAmount, setAddAmount] = useState<{[key: string]: string}>({});
+
+  useEffect(() => {
+    fetchData();
+    
+    // Subscriptions for real-time updates
+    const usersChannel = supabase.channel('admin_users')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'wallets' }, () => fetchData())
+      .subscribe();
+
+    const withdrawChannel = supabase.channel('admin_withdraws')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawals' }, () => fetchData())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(usersChannel);
+      supabase.removeChannel(withdrawChannel);
+    };
+  }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      // Get users and their wallet balances
+      const { data: usersData, error: usersError } = await supabase
+        .from('users')
+        .select('id, phone, created_at, wallets(balance)');
+
+      if (usersError) throw usersError;
+
+      const formattedUsers = (usersData || []).map((u: any) => ({
+        id: u.id,
+        phone: u.phone,
+        created_at: u.created_at,
+        balance: u.wallets?.balance || 0
+      }));
+
+      setUsers(formattedUsers);
+
+      // Get withdrawals
+      const { data: withdrawData, error: withdrawError } = await supabase
+        .from('withdrawals')
+        .select('*, users(phone)')
+        .order('created_at', { ascending: false });
+
+      if (withdrawError) throw withdrawError;
+      setWithdrawals(withdrawData || []);
+    } catch (err) {
+      console.error('Error fetching admin data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddBalance = async (userId: string, currentBalance: number) => {
+    const amount = Number(addAmount[userId]);
+    if (isNaN(amount) || amount <= 0) return;
+
+    try {
+      const { error } = await supabase
+        .from('wallets')
+        .update({ balance: currentBalance + amount })
+        .eq('user_id', userId);
+
+      if (error) throw error;
+      
+      setAddAmount({ ...addAmount, [userId]: '' });
+      fetchData();
+    } catch (err) {
+      alert('Failed to add balance');
+    }
+  };
+
+  const handleMarkPaid = async (withdrawId: string) => {
+    try {
+      const { error } = await supabase
+        .from('withdrawals')
+        .update({ status: 'paid' })
+        .eq('id', withdrawId);
+
+      if (error) throw error;
+      fetchData();
+    } catch (err) {
+      alert('Failed to mark as paid');
+    }
+  };
+
+  const filteredUsers = users.filter(u => u.phone.includes(searchTerm));
   const pendingWithdrawals = withdrawals.filter(w => w.status === 'pending');
-  
-  const totalStake = activePlayers.reduce((acc, p) => acc + p.stake, 0);
-  const adminCommission = totalStake * 0.3;
-  const winnerPrize = totalStake * 0.7;
+
+  const totalDeposits = users.reduce((acc, u) => acc + u.balance, 0);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <h2 className="text-3xl font-black tracking-tight">የአስተዳዳሪ ዳሽቦርድ (Admin)</h2>
-        <button 
-          onClick={onReset}
-          className="flex items-center justify-center gap-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 px-6 py-3 rounded-2xl font-bold transition-all border border-red-500/20"
-        >
-          <RotateCcw className="w-5 h-5" /> ጨዋታውን ቀይር (Reset)
-        </button>
+        <div className="flex items-center gap-2 bg-slate-800 px-4 py-2 rounded-2xl border border-white/5">
+          <Search size={18} className="text-slate-500" />
+          <input 
+            type="text" 
+            placeholder="በስልክ ፈልግ..."
+            className="bg-transparent border-none outline-none text-sm font-bold w-40"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         <StatCard 
           icon={<Users className="text-blue-400" />} 
-          label="ንቁ ተጫዋቾች" 
-          value={activePlayers.length.toString()} 
-          suffix="/ 200"
+          label="ጠቅላላ ተጫዋቾች" 
+          value={users.length.toString()} 
         />
         <StatCard 
-          icon={<DollarSign className="text-green-400" />} 
-          label="ጠቅላላ ገቢ" 
-          value={totalStake.toLocaleString()} 
+          icon={<WalletIcon className="text-green-400" />} 
+          label="ያለ ጠቅላላ ሒሳብ" 
+          value={totalDeposits.toLocaleString()} 
           suffix="ETB"
         />
         <StatCard 
-          icon={<PieChart className="text-purple-400" />} 
-          label="ኮሚሽን (30%)" 
-          value={adminCommission.toLocaleString()} 
-          suffix="ETB"
-        />
-        <StatCard 
-          icon={<CheckCircle className="text-yellow-400" />} 
-          label="የአሸናፊ ሽልማት" 
-          value={winnerPrize.toLocaleString()} 
-          suffix="ETB"
+          icon={<Clock className="text-amber-400" />} 
+          label="የሚጠበቅ የማውጫ" 
+          value={pendingWithdrawals.length.toString()} 
         />
       </div>
 
@@ -72,7 +159,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClick={() => setTab('players')}
           className={`pb-4 px-2 font-black text-sm transition-all ${tab === 'players' ? 'text-blue-500 border-b-2 border-blue-500' : 'text-slate-500'}`}
         >
-          ተጫዋቾች ({pendingPlayers.length})
+          ተጫዋቾች ({users.length})
         </button>
         <button 
           onClick={() => setTab('withdrawals')}
@@ -82,43 +169,41 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </button>
       </div>
 
-      {/* Verification Queue */}
       <div className="bg-slate-900 border border-white/5 rounded-[2rem] overflow-hidden shadow-2xl">
-        <div className="p-6 bg-white/5 border-b border-white/5">
-          <h3 className="font-black flex items-center gap-3">
-            {tab === 'players' ? <Clock className="w-6 h-6 text-amber-500" /> : <WalletIcon className="w-6 h-6 text-blue-500" />}
-            {tab === 'players' ? `ማረጋገጫ የሚጠብቁ (${pendingPlayers.length})` : `ገንዘብ ማውጣት የጠየቁ (${pendingWithdrawals.length})`}
-          </h3>
-        </div>
-        <div className="divide-y divide-white/5 max-h-[600px] overflow-y-auto">
+        <div className="divide-y divide-white/5">
           {tab === 'players' ? (
-            pendingPlayers.length === 0 ? (
+            filteredUsers.length === 0 ? (
               <div className="p-20 text-center text-slate-500 font-bold uppercase tracking-widest text-xs">
-                ምንም የሚጠባበቅ ክፍያ የለም
+                ምንም ተጫዋች አልተገኘም
               </div>
             ) : (
-              pendingPlayers.map((player) => (
-                <div key={player.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-white/5 transition-colors">
+              filteredUsers.map((user) => (
+                <div key={user.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-white/5 transition-colors">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-slate-800 rounded-2xl flex items-center justify-center font-black text-blue-400 border border-white/5">
-                      {player.name[0]}
+                      {user.phone.slice(-2)}
                     </div>
                     <div>
-                      <p className="font-black text-lg">{player.name} {player.isMe && <span className="text-[10px] bg-blue-600 px-2 py-0.5 rounded ml-2">እርስዎ</span>}</p>
-                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">
-                        Stake: <span className="text-white">{player.stake} ETB</span> • Ref: <span className="text-white">{player.transactionId || 'N/A'}</span>
+                      <p className="font-black text-lg">{user.phone}</p>
+                      <p className="text-xs font-bold text-slate-500 mt-1">
+                        Balance: <span className="text-green-400">{user.balance.toLocaleString()} ETB</span>
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <button className="flex items-center gap-2 text-[10px] font-black text-slate-400 hover:text-white uppercase tracking-widest px-4 py-2 bg-white/5 rounded-xl border border-white/5 transition-all">
-                      <ImageIcon className="w-4 h-4" /> ፎቶ እይ
-                    </button>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="number" 
+                      placeholder="Amount"
+                      className="bg-slate-800 border border-white/5 rounded-xl px-4 py-2 w-24 text-sm font-bold outline-none focus:ring-1 focus:ring-blue-500"
+                      value={addAmount[user.id] || ''}
+                      onChange={(e) => setAddAmount({ ...addAmount, [user.id]: e.target.value })}
+                    />
                     <button 
-                      onClick={() => onVerify(player.id)}
-                      className="bg-green-600 hover:bg-green-500 text-white text-xs px-6 py-2.5 rounded-xl font-black transition-all active:scale-95 shadow-lg shadow-green-900/20"
+                      onClick={() => handleAddBalance(user.id, user.balance)}
+                      className="bg-blue-600 hover:bg-blue-500 text-white p-2.5 rounded-xl font-black transition-all active:scale-95 shadow-lg shadow-blue-900/20"
+                      title="Add Balance"
                     >
-                      አረጋግጥ
+                      <Plus size={18} />
                     </button>
                   </div>
                 </div>
@@ -127,24 +212,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           ) : (
             pendingWithdrawals.length === 0 ? (
               <div className="p-20 text-center text-slate-500 font-bold uppercase tracking-widest text-xs">
-                ምንም የሚጠባበቅ የማውጫ ጥያቄ የለም
+                ምንም የሚጠበቅ የማውጫ ጥያቄ የለም
               </div>
             ) : (
               pendingWithdrawals.map((w) => (
                 <div key={w.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:bg-white/5 transition-colors">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-blue-600/10 rounded-2xl flex items-center justify-center font-black text-blue-400 border border-blue-500/20">
-                      <ArrowCcwIcon className="w-6 h-6" />
+                      <WalletIcon className="w-6 h-6" />
                     </div>
                     <div>
                       <p className="font-black text-lg">{w.amount} ETB</p>
                       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">
-                        Phone: <span className="text-white">{w.phone}</span> • Date: <span className="text-white">{new Date(w.createdAt).toLocaleDateString()}</span>
+                        Phone: <span className="text-white">{w.phone}</span> • Date: <span className="text-white">{new Date(w.created_at).toLocaleDateString()}</span>
                       </p>
                     </div>
                   </div>
                   <button 
-                    onClick={() => onMarkWithdrawalPaid(w.id)}
+                    onClick={() => handleMarkPaid(w.id)}
                     className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-xs px-6 py-2.5 rounded-xl font-black transition-all active:scale-95"
                   >
                     <Check className="w-4 h-4" /> ተከፍሏል (Mark Paid)
@@ -173,25 +258,5 @@ const StatCard = ({ icon, label, value, suffix }: { icon: React.ReactNode, label
     </div>
   </div>
 );
-
-function ArrowCcwIcon(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-    </svg>
-  );
-}
 
 export default AdminDashboard;

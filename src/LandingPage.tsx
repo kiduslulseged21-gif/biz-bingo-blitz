@@ -85,7 +85,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onPlay10, onPlay20, onDeposit
           className="inline-flex items-center gap-3 px-8 py-4 bg-slate-800/50 hover:bg-slate-800 border border-white/5 rounded-2xl transition-all text-slate-300 font-bold"
         >
           <CreditCard className="w-5 h-5 text-blue-400" />
-          ሂሳብ ይሙሉ (Deposit)
+          ሒሳብ ይሙሉ። (Deposit)
         </button>
       </div>
     </motion.div>
